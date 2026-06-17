@@ -1,0 +1,141 @@
+update the following code to include the mobile video stream and include a file saving button and update code to overcome camera feed: NotAllowedError: Permission Denied 
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mobile AR Drawing Projector</title>
+    <!-- Load MediaPipe and Camera Utils -->
+    <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
+    <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background-color: black;
+        }
+        video {
+            display: none; /* Hide the camera stream, only use it for processing */
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Allows clicks/interaction to bypass if needed */
+        }
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-family: sans-serif;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <video id="input-video"></video>
+    <canvas id="output-canvas"></canvas>
+    
+    <div id="instructions">
+        Hold index finger up to draw | Keep hand flat to stop
+    </div>
+
+    <script type="module">
+        const videoElement = document.getElementById('input-video');
+        const canvasElement = document.getElementById('output-canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+
+        // Resize canvas to window
+        function resizeCanvas() {
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        let isDrawing = false;
+        let lastX = null;
+        let lastY = null;
+
+        function onResults(results) {
+            // Clear canvas every frame
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const hands = results.multiHandLandmarks[0];
+                
+                // Index Finger Tip (Landmark 8) & PIP Knuckle (Landmark 6)
+                const indexTip = hands[8];
+                const indexKnuckle = hands[6];
+
+                // Map coordinates to canvas size
+                const x = indexTip.x * canvasElement.width;
+                const y = indexTip.y * canvasElement.height;
+
+                // Simple Gesture: If Index Finger Tip is above Knuckle, consider it 'Up' (Drawing)
+                const isIndexUp = indexTip.y < indexKnuckle.y;
+
+                if (isIndexUp) {
+                    if (!isDrawing) {
+                        isDrawing = true;
+                        lastX = x;
+                        lastY = y;
+                    } else {
+                        // Draw the line
+                        canvasCtx.beginPath();
+                        canvasCtx.moveTo(lastX, lastY);
+                        canvasCtx.lineTo(x, y);
+                        canvasCtx.strokeStyle = '#00FF00';
+                        canvasCtx.lineWidth = 5;
+                        canvasCtx.lineCap = 'round';
+                        canvasCtx.stroke();
+                        
+                        lastX = x;
+                        lastY = y;
+                    }
+                } else {
+                    isDrawing = false; // Stop drawing
+                    lastX = null;
+                    lastY = null;
+                }
+            } else {
+                isDrawing = false;
+            }
+        }
+
+        const hands = new Hands({
+            locateFile: (file) => {
+                return `https://jsdelivr.net{file}`;
+            }
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.7
+        });
+
+        hands.onResults(onResults);
+
+        // Start camera
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 640,
+            height: 480
+        });
+        camera.start();
+    </script>
+</body>
+</html>
