@@ -63,7 +63,8 @@
     <canvas id="output-canvas"></canvas>
 
     <button id="saveBtn">Save Drawing</button>
-
+    <button id="flipBtn">Flip Camera</button>
+    
     <div id="instructions">
         Hold index finger up to draw | Keep hand flat to stop
     </div>
@@ -95,7 +96,12 @@ function drawLine(x1, y1, x2, y2) {
 }
 
 function onResults(results) {
-    if (!results.multiHandLandmarks) return;
+    if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+        drawing = false;
+        lastX = null;
+        lastY = null;
+        return;
+    }
 
     const hand = results.multiHandLandmarks[0];
     const tip = hand[8];
@@ -131,20 +137,25 @@ const hands = new Hands({
 hands.setOptions({
     maxNumHands: 1,
     modelComplexity: 1,
-    minDetectionConfidence: 0.7,
-    minTrackingConfidence: 0.7
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6
 });
 
 hands.onResults(onResults);
 
 let currentFacing = "environment";
+let currentStream = null;
 
 async function startCamera() {
-    const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { exact: currentFacing } }
+    if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+    }
+
+    currentStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: currentFacing }
     });
 
-    video.srcObject = stream;
+    video.srcObject = currentStream;
     await video.play();
 
     requestAnimationFrame(processFrame);
@@ -160,6 +171,11 @@ document.getElementById("saveBtn").onclick = () => {
     link.download = "drawing.png";
     link.href = canvas.toDataURL("image/png");
     link.click();
+};
+
+document.getElementById("flipBtn").onclick = async () => {
+    currentFacing = currentFacing === "environment" ? "user" : "environment";
+    await startCamera();
 };
 
 startCamera();
