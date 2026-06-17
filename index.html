@@ -68,113 +68,102 @@
         Hold index finger up to draw | Keep hand flat to stop
     </div>
 
-    <script type="module">
-        const videoElement = document.getElementById('input-video');
-        const canvasElement = document.getElementById('output-canvas');
-        const canvasCtx = canvasElement.getContext('2d');
+<script type="module">
+const video = document.getElementById("input-video");
+const canvas = document.getElementById("output-canvas");
+const ctx = canvas.getContext("2d");
 
-        function resizeCanvas() {
-            canvasElement.width = window.innerWidth;
-            canvasElement.height = window.innerHeight;
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+resizeCanvas();
+window.onresize = resizeCanvas;
+
+let drawing = false;
+let lastX = null;
+let lastY = null;
+
+function drawLine(x1, y1, x2, y2) {
+    ctx.strokeStyle = "#00FF00";
+    ctx.lineWidth = 5;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+}
+
+function onResults(results) {
+    if (!results.multiHandLandmarks) return;
+
+    const hand = results.multiHandLandmarks[0];
+    const tip = hand[8];
+    const knuckle = hand[6];
+
+    const x = tip.x * canvas.width;
+    const y = tip.y * canvas.height;
+
+    const indexUp = tip.y < knuckle.y;
+
+    if (indexUp) {
+        if (!drawing) {
+            drawing = true;
+            lastX = x;
+            lastY = y;
+        } else {
+            drawLine(lastX, lastY, x, y);
+            lastX = x;
+            lastY = y;
         }
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
+    } else {
+        drawing = false;
+        lastX = null;
+        lastY = null;
+    }
+}
 
-        let isDrawing = false;
-        let lastX = null;
-        let lastY = null;
+const hands = new Hands({
+    locateFile: (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
 
-        function onResults(results) {
-            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.7,
+    minTrackingConfidence: 0.7
+});
 
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                const hand = results.multiHandLandmarks[0];
+hands.onResults(onResults);
 
-                const indexTip = hand[8];
-                const indexKnuckle = hand[6];
+let currentFacing = "environment";
 
-                const x = indexTip.x * canvasElement.width;
-                const y = indexTip.y * canvasElement.height;
+async function startCamera() {
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { exact: currentFacing } }
+    });
 
-                const isIndexUp = indexTip.y < indexKnuckle.y;
+    video.srcObject = stream;
+    await video.play();
 
-                if (isIndexUp) {
-                    if (!isDrawing) {
-                        isDrawing = true;
-                        lastX = x;
-                        lastY = y;
-                    } else {
-                        canvasCtx.beginPath();
-                        canvasCtx.moveTo(lastX, lastY);
-                        canvasCtx.lineTo(x, y);
-                        canvasCtx.strokeStyle = '#00FF00';
-                        canvasCtx.lineWidth = 5;
-                        canvasCtx.lineCap = 'round';
-                        canvasCtx.stroke();
+    requestAnimationFrame(processFrame);
+}
 
-                        lastX = x;
-                        lastY = y;
-                    }
-                } else {
-                    isDrawing = false;
-                    lastX = null;
-                    lastY = null;
-                }
-            }
-        }
+async function processFrame() {
+    await hands.send({ image: video });
+    requestAnimationFrame(processFrame);
+}
 
-        const hands = new Hands({
-            locateFile: (file) =>
-                `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-        });
+document.getElementById("saveBtn").onclick = () => {
+    const link = document.createElement("a");
+    link.download = "drawing.png";
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+};
 
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.7
-        });
-
-        hands.onResults(onResults);
-
-        async function startCamera() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: { ideal: "environment" },
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    }
-                });
-
-                videoElement.srcObject = stream;
-                await videoElement.play();
-
-                const camera = new Camera(videoElement, {
-                    onFrame: async () => {
-                        await hands.send({ image: videoElement });
-                    },
-                    width: 1280,
-                    height: 720
-                });
-
-                camera.start();
-
-            } catch (err) {
-                alert("Camera access denied. Please enable camera permissions.");
-                console.error("Camera Error:", err);
-            }
-        }
-
-        startCamera();
-
-        document.getElementById("saveBtn").addEventListener("click", () => {
-            const link = document.createElement("a");
-            link.download = "drawing.png";
-            link.href = canvasElement.toDataURL("image/png");
-            link.click();
-        });
-    </script>
+startCamera();
+</script>
 
 </body>
 </html>
