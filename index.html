@@ -94,6 +94,17 @@
     let strokes = [];
     let currentStroke = [];
 
+    let drawing = false;
+    let lastX = null;
+    let lastY = null;
+
+    function resetDrawingState() {
+      drawing = false;
+      lastX = null;
+      lastY = null;
+      currentStroke = [];
+    }
+
     function drawLine(x1, y1, x2, y2) {
       ctx.strokeStyle = '#00FF00';
       ctx.lineWidth   = 5;
@@ -114,10 +125,6 @@
         }
       }
     }
-
-    let drawing = false;
-    let lastX = null;
-    let lastY = null;
 
     function onResults(results) {
       if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
@@ -215,16 +222,19 @@
 
     document.getElementById('flipBtn').onclick = async () => {
       currentFacing = currentFacing === 'environment' ? 'user' : 'environment';
+      resetDrawingState();
       await startCamera();
     };
 
     document.getElementById('undoBtn').onclick = () => {
       strokes.pop();
+      resetDrawingState();
       redrawAll();
     };
 
     document.getElementById('clearBtn').onclick = () => {
       strokes = [];
+      resetDrawingState();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     };
 
