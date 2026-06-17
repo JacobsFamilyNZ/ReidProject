@@ -2,57 +2,61 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mobile AR Drawing Projector</title>
-    <!-- Load MediaPipe and Camera Utils -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI Virtual Painter</title>
+    <!-- Load MediaPipe Hands and Camera Utils -->
     <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
     <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
     <style>
         body, html {
             margin: 0;
             padding: 0;
-            width: 100vw;
-            height: 100vh;
+            width: 100%;
+            height: 100%;
             overflow: hidden;
-            background-color: black;
+            background-color: #222;
+            touch-action: none;
         }
-        video {
-            display: none; /* Hide the camera stream, only use it for processing */
+        #camera-stream {
+            display: none; /* Hidden, but processes the tracking */
         }
-        canvas {
+        #paint-canvas {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            pointer-events: none; /* Allows clicks/interaction to bypass if needed */
         }
-        #instructions {
+        #controls {
             position: absolute;
             bottom: 20px;
-            width: 100%;
-            text-align: center;
-            color: white;
-            font-family: sans-serif;
+            left: 50%;
+            transform: translateX(-50%);
             z-index: 10;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-family: sans-serif;
         }
     </style>
 </head>
 <body>
 
-    <video id="input-video"></video>
-    <canvas id="output-canvas"></canvas>
-    
-    <div id="instructions">
-        Hold index finger up to draw | Keep hand flat to stop
+    <!-- Camera Feed (hidden) -->
+    <video id="camera-stream" playsinline></video>
+    <!-- Drawing Canvas -->
+    <canvas id="paint-canvas"></canvas>
+
+    <div id="controls">
+        <span>Point index finger to draw. Pinch to stop.</span>
     </div>
 
-    <script type="module">
-        const videoElement = document.getElementById('input-video');
-        const canvasElement = document.getElementById('output-canvas');
-        const canvasCtx = canvasElement.getContext('2d');
+    <script>
+        const videoElement = document.getElementById('camera-stream');
+        const canvasElement = document.getElementById('paint-canvas');
+        const ctx = canvasElement.getContext('2d');
 
-        // Resize canvas to window
+        // Set canvas to full screen
         function resizeCanvas() {
             canvasElement.width = window.innerWidth;
             canvasElement.height = window.innerHeight;
@@ -61,59 +65,70 @@
         resizeCanvas();
 
         let isDrawing = false;
-        let lastX = null;
-        let lastY = null;
+        let lastX = 0;
+        let lastY = 0;
+
+        function drawOnCanvas(x, y) {
+            if (!isDrawing) {
+                isDrawing = true;
+                lastX = x;
+                lastY = y;
+            }
+            
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(x, y);
+            ctx.strokeStyle = '#ff0055';
+            ctx.lineWidth = 5;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+
+            lastX = x;
+            lastY = y;
+        }
 
         function onResults(results) {
-            // Clear canvas every frame
-            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            ctx.save();
+            
+            // Draw detected hands (if you want visible hand landmarks, uncomment next 3 lines)
+            // ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            // if (results.multiHandLandmarks) {
+            //     for (const landmarks of results.multiHandLandmarks) { ... }
+            // }
 
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                const hands = results.multiHandLandmarks[0];
+                const landmarks = results.multiHandLandmarks[0];
                 
-                // Index Finger Tip (Landmark 8) & PIP Knuckle (Landmark 6)
-                const indexTip = hands[8];
-                const indexKnuckle = hands[6];
+                // Landmark 8 is the index finger tip
+                const indexTip = landmarks[8];
+                // Landmark 4 is the thumb tip (used as a pinch/stop gesture)
+                const thumbTip = landmarks[4];
 
-                // Map coordinates to canvas size
-                const x = indexTip.x * canvasElement.width;
-                const y = indexTip.y * canvasElement.height;
+                // Calculate distance between index tip and thumb tip to simulate "lifting the pen"
+                const dx = indexTip.x - thumbTip.x;
+                const dy = indexTip.y - thumbTip.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
 
-                // Simple Gesture: If Index Finger Tip is above Knuckle, consider it 'Up' (Drawing)
-                const isIndexUp = indexTip.y < indexKnuckle.y;
+                // Map MediaPipe coordinates to Canvas pixel coordinates
+                const canvasX = (1 - indexTip.x) * canvasElement.width; // Flip horizontally
+                const canvasY = indexTip.y * canvasElement.height;
 
-                if (isIndexUp) {
-                    if (!isDrawing) {
-                        isDrawing = true;
-                        lastX = x;
-                        lastY = y;
-                    } else {
-                        // Draw the line
-                        canvasCtx.beginPath();
-                        canvasCtx.moveTo(lastX, lastY);
-                        canvasCtx.lineTo(x, y);
-                        canvasCtx.strokeStyle = '#00FF00';
-                        canvasCtx.lineWidth = 5;
-                        canvasCtx.lineCap = 'round';
-                        canvasCtx.stroke();
-                        
-                        lastX = x;
-                        lastY = y;
-                    }
+                // Pinch gesture: stop drawing if fingers are too close
+                if (distance < 0.08) {
+                    isDrawing = false;
                 } else {
-                    isDrawing = false; // Stop drawing
-                    lastX = null;
-                    lastY = null;
+                    drawOnCanvas(canvasX, canvasY);
                 }
             } else {
-                isDrawing = false;
+                isDrawing = false; // Stop drawing if no hand is detected
             }
+
+            ctx.restore();
         }
 
         const hands = new Hands({
-            locateFile: (file) => {
-                return `https://jsdelivr.net{file}`;
-            }
+            locateFile: (file) => `https://jsdelivr.net{file}`
         });
 
         hands.setOptions({
@@ -125,14 +140,16 @@
 
         hands.onResults(onResults);
 
-        // Start camera
+        // Access the mobile camera (uses front camera by default)
         const camera = new Camera(videoElement, {
             onFrame: async () => {
                 await hands.send({image: videoElement});
             },
             width: 640,
-            height: 480
+            height: 480,
+            facingMode: 'user' // Change to 'environment' for rear camera
         });
+
         camera.start();
     </script>
 </body>
