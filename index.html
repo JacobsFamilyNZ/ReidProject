@@ -46,6 +46,24 @@
             cursor: pointer;
             z-index: 20;
         }
+        .uiBtn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            padding: 12px 18px;
+            background: #00ff00;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 20;
+            margin-left: 10px;
+        }
+        #flipBtn { right: 110px; }
+        #undoBtn { right: 205px; }
+        #clearBtn { right: 300px; }   
+        }
         #instructions {
             position: absolute;
             bottom: 20px;
@@ -62,8 +80,10 @@
     <video id="input-video" playsinline></video>
     <canvas id="output-canvas"></canvas>
 
-    <button id="saveBtn">Save Drawing</button>
-    <button id="flipBtn">Flip Camera</button>
+    <button id="saveBtn" class="uiBtn">Save</button>
+    <button id="flipBtn" class="uiBtn">Flip</button>
+    <button id="undoBtn" class="uiBtn">Undo</button>
+    <button id="clearBtn" class="uiBtn">Clear</button>
     
     <div id="instructions">
         Hold index finger up to draw | Keep hand flat to stop
@@ -81,9 +101,21 @@ function resizeCanvas() {
 resizeCanvas();
 window.onresize = resizeCanvas;
 
-let drawing = false;
-let lastX = null;
-let lastY = null;
+// Stroke history for undo
+let strokes = [];
+let currentStroke = [];
+
+function redrawAll() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    for (const stroke of strokes) {
+        for (let i = 1; i < stroke.length; i++) {
+            const p1 = stroke[i - 1];
+            const p2 = stroke[i];
+            drawLine(p1.x, p1.y, p2.x, p2.y);
+        }
+    }
+}
 
 function drawLine(x1, y1, x2, y2) {
     ctx.strokeStyle = "#00FF00";
@@ -94,6 +126,10 @@ function drawLine(x1, y1, x2, y2) {
     ctx.lineTo(x2, y2);
     ctx.stroke();
 }
+
+let drawing = false;
+let lastX = null;
+let lastY = null;
 
 function onResults(results) {
     if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
@@ -115,10 +151,14 @@ function onResults(results) {
     if (indexUp) {
         if (!drawing) {
             drawing = true;
+            currentStroke = [];
+            strokes.push(currentStroke);
             lastX = x;
             lastY = y;
+            currentStroke.push({ x, y });
         } else {
             drawLine(lastX, lastY, x, y);
+            currentStroke.push({ x, y });
             lastX = x;
             lastY = y;
         }
@@ -166,6 +206,7 @@ async function processFrame() {
     requestAnimationFrame(processFrame);
 }
 
+// BUTTONS
 document.getElementById("saveBtn").onclick = () => {
     const link = document.createElement("a");
     link.download = "drawing.png";
@@ -176,6 +217,16 @@ document.getElementById("saveBtn").onclick = () => {
 document.getElementById("flipBtn").onclick = async () => {
     currentFacing = currentFacing === "environment" ? "user" : "environment";
     await startCamera();
+};
+
+document.getElementById("undoBtn").onclick = () => {
+    strokes.pop();
+    redrawAll();
+};
+
+document.getElementById("clearBtn").onclick = () => {
+    strokes = [];
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 };
 
 startCamera();
