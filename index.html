@@ -2,155 +2,183 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI Virtual Painter</title>
-    <!-- Load MediaPipe Hands and Camera Utils -->
-    <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Air Canvas & Finger Tracking</title>
+    <!-- MediaPipe Vision Task Library -->
     <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
     <style>
-        body, html {
+        body {
             margin: 0;
             padding: 0;
-            width: 100%;
-            height: 100%;
+            background-color: #1a1a1a;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
             overflow: hidden;
-            background-color: #222;
-            touch-action: none;
+            font-family: Arial, sans-serif;
         }
-        #camera-stream {
-            display: none; /* Hidden, but processes the tracking */
+        #app-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
         }
-        #paint-canvas {
+        video, canvas {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirror camera for easier drawing */
+        }
+        canvas {
+            z-index: 10;
+            pointer-events: none; /* Let video receive clicks if needed */
         }
         #controls {
             position: absolute;
             bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 10;
-            background: rgba(255, 255, 255, 0.8);
+            z-index: 20;
+            background: rgba(0, 0, 0, 0.6);
             padding: 10px 20px;
-            border-radius: 20px;
-            font-family: sans-serif;
+            border-radius: 10px;
+            text-align: center;
         }
     </style>
 </head>
 <body>
 
-    <!-- Camera Feed (hidden) -->
-    <video id="camera-stream" playsinline></video>
-    <!-- Drawing Canvas -->
-    <canvas id="paint-canvas"></canvas>
-
-    <div id="controls">
-        <span>Point index finger to draw. Pinch to stop.</span>
+    <div id="app-container">
+        <!-- Live Camera Stream -->
+        <video id="webcam" autoplay playsinline></video>
+        <!-- Drawing Canvas -->
+        <canvas id="drawingCanvas"></canvas>
+        
+        <div id="controls">
+            <p>Point index finger to draw. Middle finger down = stop drawing.</p>
+        </div>
     </div>
 
-    <script>
-        const videoElement = document.getElementById('camera-stream');
-        const canvasElement = document.getElementById('paint-canvas');
-        const ctx = canvasElement.getContext('2d');
+    <script type="module">
+        import { GestureRecognizer, FilesetResolver, DrawingUtils } from "https://jsdelivr.net";
 
-        // Set canvas to full screen
-        function resizeCanvas() {
-            canvasElement.width = window.innerWidth;
-            canvasElement.height = window.innerHeight;
-        }
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
+        const video = document.getElementById("webcam");
+        const drawingCanvas = document.getElementById("drawingCanvas");
+        const canvasCtx = drawingCanvas.getContext("2d");
 
+        let gestureRecognizer;
+        let lastVideoTime = -1;
         let isDrawing = false;
         let lastX = 0;
         let lastY = 0;
 
-        function drawOnCanvas(x, y) {
-            if (!isDrawing) {
-                isDrawing = true;
-                lastX = x;
-                lastY = y;
-            }
+        // Initialize MediaPipe Gesture Recognizer
+        async function initializeAI() {
+            const vision = await FilesetResolver.forVisionTasks(
+                "https://jsdelivr.net"
+            );
             
-            ctx.beginPath();
-            ctx.moveTo(lastX, lastY);
-            ctx.lineTo(x, y);
-            ctx.strokeStyle = '#ff0055';
-            ctx.lineWidth = 5;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.stroke();
+            gestureRecognizer = await GestureRecognizer.createFromOptions(vision, {
+                baseOptions: {
+                    modelAssetPath: "https://googleapis.com",
+                    delegate: "GPU"
+                },
+                runningMode: "VIDEO",
+                numHands: 1
+            });
 
-            lastX = x;
-            lastY = y;
+            startCamera();
         }
 
-        function onResults(results) {
-            ctx.save();
-            
-            // Draw detected hands (if you want visible hand landmarks, uncomment next 3 lines)
-            // ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            // if (results.multiHandLandmarks) {
-            //     for (const landmarks of results.multiHandLandmarks) { ... }
-            // }
+        // Start Mobile/Back Camera
+        function startCamera() {
+            const constraints = {
+                video: { facingMode: "environment" }, // Forces back camera on phones
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            };
 
+            navigator.mediaDevices.getUserMedia(constraints).then((stream) => {
+                video.srcObject = stream;
+                video.addEventListener("loadeddata", () => {
+                    // Match canvas size to video size
+                    drawingCanvas.width = video.videoWidth;
+                    drawingCanvas.height = video.videoHeight;
+                    // Start tracking
+                    requestAnimationFrame(predictWebcam);
+                });
+            }).catch(err => {
+                console.error("Camera error: ", err);
+                alert("Please allow camera access to use Air Canvas.");
+            });
+        }
+
+        // Main Tracking Loop
+        function predictWebcam() {
+            if (!gestureRecognizer) return;
+
+            let nowInMs = Date.now();
+            if (video.currentTime !== lastVideoTime) {
+                const results = gestureRecognizer.recognizeForVideo(video, nowInMs);
+                lastVideoTime = video.currentTime;
+                
+                processHandGestures(results);
+            }
+
+            requestAnimationFrame(predictWebcam);
+        }
+
+        // Process Hand Landmarks & Gestures
+        function processHandGestures(results) {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
                 
-                // Landmark 8 is the index finger tip
+                // Index Finger Tip is Landmark #8
                 const indexTip = landmarks[8];
-                // Landmark 4 is the thumb tip (used as a pinch/stop gesture)
-                const thumbTip = landmarks[4];
+                // Middle Finger Tip is Landmark #12
+                const middleTip = landmarks[12];
+                
+                // Convert normalized coordinates (0.0 to 1.0) to Canvas pixels
+                const currentX = indexTip.x * drawingCanvas.width;
+                const currentY = indexTip.y * drawingCanvas.height;
 
-                // Calculate distance between index tip and thumb tip to simulate "lifting the pen"
-                const dx = indexTip.x - thumbTip.x;
-                const dy = indexTip.y - thumbTip.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                // Map MediaPipe coordinates to Canvas pixel coordinates
-                const canvasX = (1 - indexTip.x) * canvasElement.width; // Flip horizontally
-                const canvasY = indexTip.y * canvasElement.height;
-
-                // Pinch gesture: stop drawing if fingers are too close
-                if (distance < 0.08) {
-                    isDrawing = false;
+                // Simple Gesture: If index finger is up, middle finger is down
+                // (Custom gesture thresholds can be expanded for complex tracing)
+                if (middleTip.y > indexTip.y) {
+                    if (!isDrawing) {
+                        isDrawing = true;
+                        lastX = currentX;
+                        lastY = currentY;
+                    }
+                    drawOnCanvas(currentX, currentY);
                 } else {
-                    drawOnCanvas(canvasX, canvasY);
+                    isDrawing = false;
                 }
             } else {
-                isDrawing = false; // Stop drawing if no hand is detected
+                isDrawing = false;
             }
-
-            ctx.restore();
         }
 
-        const hands = new Hands({
-            locateFile: (file) => `https://jsdelivr.net{file}`
-        });
+        // Draw Line on Canvas
+        function drawOnCanvas(currentX, currentY) {
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(lastX, lastY);
+            canvasCtx.lineTo(currentX, currentY);
+            canvasCtx.strokeStyle = "#00FF00"; // Neon Green drawing color
+            canvasCtx.lineWidth = 6;
+            canvasCtx.lineCap = "round";
+            canvasCtx.stroke();
 
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.7,
-            minTrackingConfidence: 0.7
-        });
+            // Update last known position
+            lastX = currentX;
+            lastY = currentY;
+        }
 
-        hands.onResults(onResults);
-
-        // Access the mobile camera (uses front camera by default)
-        const camera = new Camera(videoElement, {
-            onFrame: async () => {
-                await hands.send({image: videoElement});
-            },
-            width: 640,
-            height: 480,
-            facingMode: 'user' // Change to 'environment' for rear camera
-        });
-
-        camera.start();
+        // Run initialization
+        initializeAI();
     </script>
 </body>
 </html>
