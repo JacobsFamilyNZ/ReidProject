@@ -1,236 +1,234 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mobile AR Drawing Projector</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mobile AR Drawing Projector</title>
 
-    <!-- Correct MediaPipe Libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <!-- MediaPipe Hands -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
-    <style>
-        body, html {
-            margin: 0;
-            padding: 0;
-            width: 100vw;
-            height: 100vh;
-            overflow: hidden;
-            background-color: black;
-        }
-        video {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            opacity: 0.25;
-        }
-        canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-        }
-        #saveBtn {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            padding: 12px 18px;
-            background: #00ff00;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            z-index: 20;
-        }
-        .uiBtn {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            padding: 12px 18px;
-            background: #00ff00;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            z-index: 20;
-            margin-left: 10px;
-        }
-        #flipBtn { right: 110px; }
-        #undoBtn { right: 205px; }
-        #clearBtn { right: 300px; }   
-        }
-        #instructions {
-            position: absolute;
-            bottom: 20px;
-            width: 100%;
-            text-align: center;
-            color: white;
-            font-family: sans-serif;
-            z-index: 10;
-        }
-    </style>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: black;
+    }
+
+    video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.25;
+    }
+
+    canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .uiBtn {
+      position: absolute;
+      top: 15px;
+      padding: 10px 16px;
+      background: #00ff00;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      z-index: 20;
+    }
+
+    #saveBtn  { right: 15px; }
+    #flipBtn  { right: 105px; }
+    #undoBtn  { right: 195px; }
+    #clearBtn { right: 285px; }
+
+    #instructions {
+      position: absolute;
+      bottom: 20px;
+      width: 100%;
+      text-align: center;
+      color: white;
+      font-family: sans-serif;
+      z-index: 10;
+      font-size: 14px;
+    }
+  </style>
 </head>
 <body>
+  <video id="input-video" playsinline></video>
+  <canvas id="output-canvas"></canvas>
 
-    <video id="input-video" playsinline></video>
-    <canvas id="output-canvas"></canvas>
+  <button id="saveBtn"  class="uiBtn">Save</button>
+  <button id="flipBtn"  class="uiBtn">Flip</button>
+  <button id="undoBtn"  class="uiBtn">Undo</button>
+  <button id="clearBtn" class="uiBtn">Clear</button>
 
-    <button id="saveBtn" class="uiBtn">Save</button>
-    <button id="flipBtn" class="uiBtn">Flip</button>
-    <button id="undoBtn" class="uiBtn">Undo</button>
-    <button id="clearBtn" class="uiBtn">Clear</button>
-    
-    <div id="instructions">
-        Hold index finger up to draw | Keep hand flat to stop
-    </div>
+  <div id="instructions">
+    Hold index finger up to draw • Hand flat to stop • Flip to switch cameras
+  </div>
 
-<script type="module">
-const video = document.getElementById("input-video");
-const canvas = document.getElementById("output-canvas");
-const ctx = canvas.getContext("2d");
+  <script>
+    const video  = document.getElementById('input-video');
+    const canvas = document.getElementById('output-canvas');
+    const ctx    = canvas.getContext('2d');
 
-function resizeCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-}
-resizeCanvas();
-window.onresize = resizeCanvas;
+    function resizeCanvas() {
+      canvas.width  = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
 
-// Stroke history for undo
-let strokes = [];
-let currentStroke = [];
+    // Stroke history for undo
+    let strokes = [];
+    let currentStroke = [];
 
-function redrawAll() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    function drawLine(x1, y1, x2, y2) {
+      ctx.strokeStyle = '#00FF00';
+      ctx.lineWidth   = 5;
+      ctx.lineCap     = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
 
-    for (const stroke of strokes) {
+    function redrawAll() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (const stroke of strokes) {
         for (let i = 1; i < stroke.length; i++) {
-            const p1 = stroke[i - 1];
-            const p2 = stroke[i];
-            drawLine(p1.x, p1.y, p2.x, p2.y);
+          const p1 = stroke[i - 1];
+          const p2 = stroke[i];
+          drawLine(p1.x, p1.y, p2.x, p2.y);
         }
+      }
     }
-}
 
-function drawLine(x1, y1, x2, y2) {
-    ctx.strokeStyle = "#00FF00";
-    ctx.lineWidth = 5;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-}
+    let drawing = false;
+    let lastX = null;
+    let lastY = null;
 
-let drawing = false;
-let lastX = null;
-let lastY = null;
-
-function onResults(results) {
-    if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+    function onResults(results) {
+      if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
         drawing = false;
-        lastX = null;
-        lastY = null;
+        lastX = lastY = null;
         return;
-    }
+      }
 
-    const hand = results.multiHandLandmarks[0];
-    const tip = hand[8];
-    const knuckle = hand[6];
+      const hand    = results.multiHandLandmarks[0];
+      const tip     = hand[8];
+      const knuckle = hand[6];
 
-    const x = tip.x * canvas.width;
-    const y = tip.y * canvas.height;
+      const x = tip.x * canvas.width;
+      const y = tip.y * canvas.height;
 
-    const indexUp = tip.y < knuckle.y;
+      const indexUp = tip.y < knuckle.y;
 
-    if (indexUp) {
+      if (indexUp) {
         if (!drawing) {
-            drawing = true;
-            currentStroke = [];
-            strokes.push(currentStroke);
-            lastX = x;
-            lastY = y;
-            currentStroke.push({ x, y });
+          drawing = true;
+          currentStroke = [];
+          strokes.push(currentStroke);
+          currentStroke.push({ x, y });
+          lastX = x;
+          lastY = y;
         } else {
-            drawLine(lastX, lastY, x, y);
-            currentStroke.push({ x, y });
-            lastX = x;
-            lastY = y;
+          drawLine(lastX, lastY, x, y);
+          currentStroke.push({ x, y });
+          lastX = x;
+          lastY = y;
         }
-    } else {
+      } else {
         drawing = false;
-        lastX = null;
-        lastY = null;
+        lastX = lastY = null;
+      }
     }
-}
 
-const hands = new Hands({
-    locateFile: (file) =>
+    const hands = new Hands({
+      locateFile: (file) =>
         `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-});
-
-hands.setOptions({
-    maxNumHands: 1,
-    modelComplexity: 1,
-    minDetectionConfidence: 0.6,
-    minTrackingConfidence: 0.6
-});
-
-hands.onResults(onResults);
-
-let currentFacing = "environment";
-let currentStream = null;
-
-async function startCamera() {
-    if (currentStream) {
-        currentStream.getTracks().forEach(t => t.stop());
-    }
-
-    currentStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: currentFacing }
     });
 
-    video.srcObject = currentStream;
-    await video.play();
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6
+    });
 
-    requestAnimationFrame(processFrame);
-}
+    hands.onResults(onResults);
 
-async function processFrame() {
-    await hands.send({ image: video });
-    requestAnimationFrame(processFrame);
-}
+    let currentFacing = 'environment';
+    let currentStream = null;
+    let running = false;
 
-// BUTTONS
-document.getElementById("saveBtn").onclick = () => {
-    const link = document.createElement("a");
-    link.download = "drawing.png";
-    link.href = canvas.toDataURL("image/png");
-    link.click();
-};
+    async function startCamera() {
+      if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+        currentStream = null;
+      }
 
-document.getElementById("flipBtn").onclick = async () => {
-    currentFacing = currentFacing === "environment" ? "user" : "environment";
-    await startCamera();
-};
+      const constraints = {
+        video: {
+          facingMode: { ideal: currentFacing }
+        },
+        audio: false
+      };
 
-document.getElementById("undoBtn").onclick = () => {
-    strokes.pop();
-    redrawAll();
-};
+      currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = currentStream;
 
-document.getElementById("clearBtn").onclick = () => {
-    strokes = [];
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-};
+      await video.play();
+      video.setAttribute('playsinline', 'true');
 
-startCamera();
-</script>
+      if (!running) {
+        running = true;
+        requestAnimationFrame(loop);
+      }
+    }
 
+    async function loop() {
+      if (video.readyState >= 2) {
+        await hands.send({ image: video });
+      }
+      requestAnimationFrame(loop);
+    }
+
+    // Buttons
+    document.getElementById('saveBtn').onclick = () => {
+      const link = document.createElement('a');
+      link.download = 'drawing.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    };
+
+    document.getElementById('flipBtn').onclick = async () => {
+      currentFacing = currentFacing === 'environment' ? 'user' : 'environment';
+      await startCamera();
+    };
+
+    document.getElementById('undoBtn').onclick = () => {
+      strokes.pop();
+      redrawAll();
+    };
+
+    document.getElementById('clearBtn').onclick = () => {
+      strokes = [];
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    };
+
+    startCamera();
+  </script>
 </body>
 </html>
